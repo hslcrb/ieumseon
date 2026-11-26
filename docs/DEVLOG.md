@@ -76,3 +76,7 @@ Kotlin 컴파일과 API 35 Android SDK의 AAPT2·D8을 이용한 패키징을 �
 공식 Android SDK 35의 AAPT2·D8 및 Kotlin을 사용해 APK를 만들고 서명을 검증했다. Android 10 이상을 대상으로 하며, 패키지 이름은 `life.rhee.ieumseon`, 버전 코드는 2다. v0.1의 테스트 APK와 같은 디버그 인증서로 서명해 앱 업그레이드가 가능하도록 했다. 정책 단위 테스트 12개가 통과했다. 기기 소유자 지정, 샘플 검증, 운영 통신망의 지연과 전환은 서로 다른 검증이므로 결과를 섞지 않는다.
 
 추가 참조: [Device Administration](https://developer.android.com/work/device-admin) · [VPN 서비스](https://developer.android.com/develop/connectivity/vpn).
+
+### 화면 자료와 공개 확인
+
+README 화면은 Vite 소개 페이지에서 캡처한 **앱 목업**이다. 하드웨어 가속 없이 Android 에뮬레이터를 시작했으나 제한 시간 안에 부팅이 완료되지 않아 실제 앱 캡처나 설치 실행, Device Owner 실기 전환은 검증하지 못했다. [알파 프리릴리즈](https://github.com/hslcrb/ieumseon/releases/tag/v0.2.0-alpha.1)의 공개 APK는 GitHub가 계산한 SHA‑256이 빌드본과 일치한다. 같은 소스 커밋에서 Cloudflare Pages GitHub 자동 배포 성공도 확인했다.
