@@ -1,53 +1,76 @@
 package life.rhee.ieumseon
 
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 
 internal enum class Standby { OFF, REQUESTING, HELD, UNAVAILABLE, EXPIRED }
+internal enum class RadioSwitch { IDLE, REQUESTED, MOBILE_DEFAULT, RESTORING, RESTORED, FAILED }
 
 internal data class MonitorView(
     val snapshot: LinkSnapshot,
     val advice: Advisory,
     val standby: Standby,
     val handovers: List<Handover>,
+    val autoMode: AutoMode,
+    val weakWifi: Boolean,
+    val deviceOwner: Boolean,
+    val restoreNeeded: Boolean,
+    val radioSwitch: RadioSwitch,
 )
 
-internal class NetworkMonitor(context: Context, private val publish: (MonitorView) -> Unit) {
+internal class NetworkMonitor(private val context: Context, private val publish: (MonitorView) -> Unit) {
     private val manager = requireNotNull(context.getSystemService(ConnectivityManager::class.java))
+    private val wifiManager = context.getSystemService(WifiManager::class.java)
+    private val policies = context.getSystemService(DevicePolicyManager::class.java)
+    private val preferences = context.getSharedPreferences("managed-radio", Context.MODE_PRIVATE)
     private val handler = Handler(Looper.getMainLooper())
     private val passiveLinks = mutableMapOf<Network, Link>()
-    private val passiveBlocked = mutableSetOf<Network>()
+    private val passiveBlocked = mutableMapOf<Network, Boolean>()
     private var defaultNetwork: Network? = null
     private var defaultLink: Link? = null
-    private var defaultBlocked = false
+    private var defaultBlocked: Boolean? = null
     private var standbyLink: Link? = null
-    private var standbyBlocked = false
+    private var standbyBlocked: Boolean? = null
     private var standbyCallback: ConnectivityManager.NetworkCallback? = null
     private var standby = Standby.OFF
     private var weak = WeakSignalTracker()
     private var handover = HandoverTracker()
     private val history = ArrayDeque<Handover>()
     private var running = false
+    private var mode = AutoMode.OFF
+    private var managedUntil = 0L
+    private var autostandby = false
+    private val episode = WeakEpisode()
+    private var switchGate = ManagedSwitchGate()
+    private var restoreNeeded = preferences.getBoolean("restore-needed", false)
+    private var radioSwitch = RadioSwitch.IDLE
+    private var radioDeadline = 0L
+
+    val deviceOwner: Boolean
+        get() = policies?.isDeviceOwnerApp(context.packageName) == true && wifiManager != null
+
 
     private val passiveCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
             if (!running) return
-            passiveLinks[network] = link(network, capabilities, network in passiveBlocked)
+            passiveLinks[network] = link(network, capabilities, passiveBlocked[network])
             render()
         }
 
         override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
             if (!running) return
-            if (blocked) passiveBlocked.add(network) else passiveBlocked.remove(network)
-            passiveLinks[network]?.let { passiveLinks[network] = it.copy(blocked = blocked) }
+            passiveBlocked[network] = blocked
+            passiveLinks[network]?.let { passiveLinks[network] = it.copy(blocked = blocked, blockedStatusKnown = true) }
             render()
         }
 
@@ -63,7 +86,7 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
         override fun onAvailable(network: Network) {
             if (!running) return
             defaultNetwork = network
-            defaultBlocked = network in passiveBlocked
+            defaultBlocked = passiveBlocked[network]
             // onCapabilitiesChanged follows. Do not manufacture a gap from callback ordering.
         }
 
@@ -77,7 +100,7 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
             if (!running || defaultNetwork != network) return
             defaultBlocked = blocked
             if (defaultLink?.id == network.networkHandle) {
-                defaultLink = defaultLink?.copy(blocked = blocked)
+                defaultLink = defaultLink?.copy(blocked = blocked, blockedStatusKnown = true)
                 render()
             }
         }
@@ -86,7 +109,7 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
             if (!running || defaultNetwork != network) return
             defaultNetwork = null
             defaultLink = null
-            defaultBlocked = false
+            defaultBlocked = null
             render()
         }
     }
@@ -112,7 +135,7 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
         handover = HandoverTracker()
         manager.activeNetwork?.let { network ->
             defaultNetwork = network
-            defaultLink = manager.getNetworkCapabilities(network)?.let { link(network, it, false) }
+            defaultLink = manager.getNetworkCapabilities(network)?.let { link(network, it, null) }
         }
         manager.registerNetworkCallback(
             NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -129,6 +152,9 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
     fun stop() {
         if (!running) return
         running = false
+        mode = AutoMode.OFF
+        episode.reset()
+        switchGate = ManagedSwitchGate()
         releaseStandby(Standby.OFF)
         handler.removeCallbacks(samples)
         manager.unregisterNetworkCallback(passiveCallback)
@@ -137,7 +163,7 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
         passiveBlocked.clear()
         defaultNetwork = null
         defaultLink = null
-        defaultBlocked = false
+        defaultBlocked = null
     }
 
     fun toggleStandby() {
@@ -146,6 +172,34 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
             releaseStandby(Standby.OFF)
             return
         }
+        requestStandby(automatic = false)
+        render()
+    }
+
+    fun setAutoMode(next: AutoMode) {
+        if (!running || (next == AutoMode.MANAGED && (!deviceOwner || restoreNeeded))) return
+        mode = next
+        managedUntil = if (next == AutoMode.MANAGED) SystemClock.elapsedRealtime() + MANAGED_ARM_MS else 0L
+        episode.reset()
+        switchGate = ManagedSwitchGate()
+        if (next == AutoMode.OFF && autostandby) releaseStandby(Standby.OFF)
+        render()
+    }
+
+    fun restoreWifi() {
+        if (!running || !restoreNeeded) return
+        val now = SystemClock.elapsedRealtime()
+        if (requestRadio(enabled = true)) {
+            radioSwitch = RadioSwitch.RESTORING
+            radioDeadline = now + RADIO_CHECK_MS
+        } else {
+            radioSwitch = RadioSwitch.FAILED
+        }
+        render()
+    }
+
+    private fun requestStandby(automatic: Boolean) {
+        if (standbyCallback != null) return
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
                 if (standbyCallback !== this) return
@@ -157,13 +211,13 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
 
             override fun onAvailable(network: Network) {
                 if (standbyCallback !== this) return
-                standbyBlocked = false
+                standbyBlocked = null
             }
 
             override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
                 if (standbyCallback !== this) return
                 standbyBlocked = blocked
-                standbyLink = standbyLink?.copy(blocked = blocked)
+                standbyLink = standbyLink?.copy(blocked = blocked, blockedStatusKnown = true)
                 render()
             }
 
@@ -177,6 +231,7 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
             }
         }
         standbyCallback = callback
+        autostandby = automatic
         standby = Standby.REQUESTING
         try {
             manager.requestNetwork(
@@ -191,12 +246,12 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
         } catch (_: RuntimeException) {
             releaseStandby(Standby.UNAVAILABLE)
         }
-        render()
     }
 
     private fun releaseStandby(next: Standby) {
         val active = standbyCallback
         standbyCallback = null
+        autostandby = false
         handler.removeCallbacks(standbyAcquireTimeout)
         handler.removeCallbacks(standbyRelease)
         if (active != null) {
@@ -208,7 +263,7 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
         }
         standby = next
         standbyLink = null
-        standbyBlocked = false
+        standbyBlocked = null
         render()
     }
 
@@ -223,16 +278,101 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
             ?: values.filter { it.transport == Transport.CELLULAR }
                 .maxWithOrNull(compareBy<Link> { it.usable }.thenBy { it.id })
         val now = SystemClock.elapsedRealtime()
-        val weakWifi = weak.sample(wifi, now)
+        val currentWifi = primary?.takeIf { it.transport == Transport.WIFI && defaultNetwork?.networkHandle == it.id }
+        val weakWifi = weak.sample(currentWifi, now)
+        if (mode == AutoMode.MANAGED && now >= managedUntil) {
+            mode = AutoMode.OFF
+            if (autostandby) releaseStandby(Standby.OFF)
+        }
+        if (mode != AutoMode.OFF && episode.consume(currentWifi, weakWifi)) requestStandby(automatic = true)
+        updateManagedRadio(primary, weakWifi, now)
         handover.sample(primary, now)?.let {
             history.addFirst(it)
             if (history.size > 4) history.removeLast()
         }
         val snapshot = LinkSnapshot(primary, wifi, mobile)
-        publish(MonitorView(snapshot, advise(snapshot, weakWifi), standby, history.toList()))
+        publish(MonitorView(snapshot, advise(snapshot, weakWifi), standby, history.toList(), mode, weakWifi,
+            deviceOwner, restoreNeeded, radioSwitch))
     }
 
-    private fun link(network: Network, caps: NetworkCapabilities, blocked: Boolean): Link {
+    private fun updateManagedRadio(primary: Link?, weakWifi: Boolean, now: Long) {
+        val wifiState = wifiManager?.wifiState
+        val wifiOn = wifiState == WifiManager.WIFI_STATE_ENABLED
+        val wifiOff = wifiState == WifiManager.WIFI_STATE_DISABLED
+        val mobileDefault = primary?.transport == Transport.CELLULAR && primary.usable && primary.blockedStatusKnown
+        when {
+            radioSwitch == RadioSwitch.REQUESTED && wifiOff && mobileDefault -> radioSwitch = RadioSwitch.MOBILE_DEFAULT
+            radioSwitch == RadioSwitch.REQUESTED && now >= radioDeadline -> {
+                if (wifiOn) {
+                    setRestoreMarker(false)
+                    radioSwitch = RadioSwitch.FAILED
+                } else if (requestRadio(enabled = true)) {
+                    radioSwitch = RadioSwitch.RESTORING
+                    radioDeadline = now + RADIO_CHECK_MS
+                } else {
+                    radioSwitch = RadioSwitch.FAILED
+                }
+            }
+            radioSwitch == RadioSwitch.RESTORING && now >= radioDeadline && !wifiOn -> radioSwitch = RadioSwitch.FAILED
+            restoreNeeded && wifiOn && radioSwitch != RadioSwitch.REQUESTED -> {
+                setRestoreMarker(false)
+                radioSwitch = RadioSwitch.RESTORED
+            }
+        }
+        val sameCurrentWifi = defaultNetwork?.networkHandle == primary?.id
+        if (!switchGate.sample(mode == AutoMode.MANAGED && deviceOwner && wifiOn &&
+                sameCurrentWifi && !restoreNeeded, primary, weakWifi, standbyLink, now)
+        ) return
+        // Disarm before requesting to prevent oscillation, even if Android rejects this request.
+        mode = AutoMode.OFF
+        switchGate = ManagedSwitchGate()
+        // Record the need to offer recovery before changing system radio state.
+        if (!setRestoreMarker(true)) {
+            radioSwitch = RadioSwitch.FAILED
+            return
+        }
+        if (requestRadio(enabled = false)) {
+            radioSwitch = RadioSwitch.REQUESTED
+            radioDeadline = now + RADIO_CHECK_MS
+        } else {
+            setRestoreMarker(false)
+            radioSwitch = RadioSwitch.FAILED
+        }
+    }
+
+    private fun setRestoreMarker(value: Boolean): Boolean {
+        val saved = preferences.edit().putBoolean("restore-needed", value).commit()
+        if (saved) restoreNeeded = value
+        return saved
+    }
+
+    @Suppress("DEPRECATION") // Device Owner is explicitly exempt from the Android 10 restriction.
+    private fun requestRadio(enabled: Boolean): Boolean {
+        if (!deviceOwner) return false
+        return try {
+            wifiManager?.setWifiEnabled(enabled) == true
+        } catch (_: SecurityException) {
+            false
+        }
+    }
+
+    @Suppress("DEPRECATION") // Platform five-level conversion is used specifically on Android 10.
+    private fun signalBars(rssi: Int): Int? {
+        val manager = wifiManager ?: return null
+        return try {
+            if (Build.VERSION.SDK_INT >= 30) normalizeBars(manager.calculateSignalLevel(rssi), manager.maxSignalLevel)
+            else WifiManager.calculateSignalLevel(rssi, 5).takeIf { it in 0..4 }?.plus(1)
+        } catch (_: RuntimeException) {
+            null
+        }
+    }
+
+    companion object {
+        private const val RADIO_CHECK_MS = 8_000L
+        private const val MANAGED_ARM_MS = 120_000L
+    }
+
+    private fun link(network: Network, caps: NetworkCapabilities, blocked: Boolean?): Link {
         val transport = when {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> Transport.VPN
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Transport.WIFI
@@ -255,8 +395,11 @@ internal class NetworkMonitor(context: Context, private val publish: (MonitorVie
             transport = transport,
             validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
             portal = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL),
-            blocked = blocked || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
+            blocked = blocked == true,
+            suspended = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
+            blockedStatusKnown = blocked != null,
             rssi = signal,
+            bars = signal?.let(::signalBars),
             security = security,
         )
     }

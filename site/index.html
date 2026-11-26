@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="description" content="이음선은 약한 와이파이와 인증이 필요한 접속을 알아차리고 다음 행동을 안내하는 안드로이드 앱입니다.">
+        <meta name="description" content="와이파이가 1~2칸으로 약해지면, 선택적으로 모바일 연결을 미리 준비하는 안드로이드 앱 이음선입니다.">
         <meta name="theme-color" content="#0b2527">
         <link rel="icon" href="/mark.svg" type="image/svg+xml">
         <title>이음선 · 와이파이와 모바일 데이터 사이</title>
@@ -29,12 +29,12 @@
             <div class="hero-band">
                 <section class="hero frame" aria-labelledby="hero-title">
                     <div class="hero-copy">
-                        <p class="hero-tag"><span aria-hidden="true"></span>안드로이드 연결 도우미</p>
+                        <p class="hero-tag"><span aria-hidden="true"></span>안드로이드 연결 도우미 · 0.2.0 알파</p>
                         <h1 id="hero-title">신호가 약해지는<br>순간을 먼저.</h1>
-                        <p class="hero-description">와이파이에 연결됐는데 인터넷이 안 될 때. 이음선은 지금 연결 상태를 읽고, 모바일 데이터가 대안인지 보여 줍니다.</p>
+                        <p class="hero-description">멀어지는 와이파이를 붙잡고 기다리지 마세요. 이음선은 약한 신호를 감지하고, 기능을 켜 두면 모바일 경로를 먼저 준비합니다.</p>
                         <div class="hero-actions">
-                            <a class="button button-primary" href="#scenarios">연결 상황 체험하기 <span aria-hidden="true">↓</span></a>
-                            <a class="text-link" href="https://github.com/hslcrb/ieumseon">소스 코드 보기 <span aria-hidden="true">↗</span></a>
+                            <a class="button button-primary" href="https://github.com/hslcrb/ieumseon/releases/tag/v0.2.0-alpha.1">알파 APK 받기 <span aria-hidden="true">↗</span></a>
+                            <a class="text-link" href="#scenarios">연결 상황 체험하기 <span aria-hidden="true">↓</span></a>
                         </div>
                     </div>
                     <figure class="route-figure">
@@ -96,17 +96,55 @@
                         <span class="feature-index" aria-hidden="true">02</span>
                         <div>
                             <h3>약해지는 신호 알아차리기</h3>
-                            <p>기기가 와이파이 신호 세기를 제공하면 약한 신호를 발견해 알려 줍니다. 측정값이 없으면 추측하지 않습니다.</p>
+                            <p>기기가 제공하는 신호를 앱에서 5칸으로 표시합니다. 시스템 상태 표시줄과 다를 수 있고, 측정값이 없을 때는 약하다고 추측하지 않습니다.</p>
                         </div>
                     </li>
                     <li>
                         <span class="feature-index" aria-hidden="true">03</span>
                         <div>
-                            <h3>다음 행동을 한곳에서</h3>
-                            <p>모바일 데이터가 대안인지 확인하고 인터넷 설정을 열 수 있습니다. 화면을 보고 있는 동안에는 모바일 경로를 최대 2분간 대기하도록 요청할 수도 있습니다.</p>
+                            <h3>모바일 경로를 먼저 준비</h3>
+                            <p>자동 대기를 직접 켜면 약한 와이파이에서 모바일 경로를 미리 요청합니다. 모바일 인터넷이 검증되면 그 상태를 확인하고, 인터넷 설정에서 직접 전환할 수 있습니다.</p>
                         </div>
                     </li>
                 </ol>
+            </section>
+
+            <section class="handoff frame" id="handoff" aria-labelledby="handoff-title">
+                <div class="handoff-copy">
+                    <p class="section-kicker">약한 와이파이 자동 대기</p>
+                    <h2 id="handoff-title">두 칸에서<br>다음 길을 준비.</h2>
+                    <p>앱 화면을 보는 동안 자동 대기를 켜 두면, 와이파이가 약해졌을 때 모바일 경로를 미리 요청합니다. 일반 설치에서는 와이파이가 자동으로 꺼지지 않으며, 전환은 Android의 인터넷 설정에서 직접 합니다.</p>
+                    <ol class="handoff-steps">
+                        <li><strong>감지</strong><span>앱 기준 5칸 중 1~2칸이 6초 이상 지속</span></li>
+                        <li><strong>확인</strong><span>모바일 인터넷이 실제로 쓸 수 있는지 검증 상태 확인</span></li>
+                        <li><strong>전환</strong><span>인터넷 설정에서 사용자 선택</span></li>
+                    </ol>
+                </div>
+
+                <figure class="handoff-figure">
+                    <div class="mock-chassis">
+                        <div class="mock-screen">
+                            <p class="mock-brand"><img src="/mark.svg" alt="" width="29" height="29"> 이음선</p>
+                            <p class="mock-heading">기본 연결</p>
+                            <div class="mock-readout">
+                                <div class="mock-wifi">
+                                    <strong>와이파이</strong>
+                                    <span>
+                                        <span class="signal-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+                                        <span class="signal-value">2 / 5칸</span>
+                                    </span>
+                                </div>
+                                <p>신호가 약해졌어요</p>
+                            </div>
+                            <div class="mock-cell">
+                                <div><span class="mock-dot" aria-hidden="true"></span><strong>모바일 대기</strong></div>
+                                <span>인터넷 확인됨</span>
+                            </div>
+                            <p class="mock-action">인터넷 설정 열기 <span aria-hidden="true">↗</span></p>
+                        </div>
+                    </div>
+                    <figcaption><strong>앱 화면 목업.</strong> 약한 와이파이와 모바일 대기 상태를 설명하는 예시이며, 실제 캡처가 아닙니다.</figcaption>
+                </figure>
             </section>
 
             <section class="simulator" id="scenarios" aria-labelledby="scenarios-title">
@@ -158,9 +196,40 @@
                     <h2 id="scope-title">선택은 내 손에.</h2>
                 </div>
                 <div>
-                    <p>기기 전체의 기본 연결은 안드로이드가 선택합니다. 이음선은 다른 앱의 통신을 제어하거나 모든 와이파이 자동 접속을 막지 않습니다.</p>
-                    <p>모바일 대기 요청은 기본 연결을 강제로 바꾸지 않으며 배터리를 더 쓸 수 있습니다. 와이파이에서 모바일 데이터로 바뀐 뒤에도 기존 재생·통화·다운로드는 다시 연결해야 할 수 있습니다.</p>
+                    <p><strong>일반 설치:</strong> 기기 전체의 기본 연결은 안드로이드가 선택합니다. 이음선은 모바일 대기 상태를 보여 주고 인터넷 설정으로 안내하지만, 와이파이를 직접 끄거나 다른 앱의 통신을 가로채지 않습니다.</p>
+                    <p>모바일 대기 요청은 배터리를 더 쓸 수 있습니다. 모바일 데이터로 바뀐 뒤에도 기존 재생·통화·다운로드는 다시 연결해야 할 수 있습니다.</p>
+                    <aside class="owner-note" aria-labelledby="owner-title">
+                        <h3 id="owner-title">기기 소유자로 설정된 관리 기기</h3>
+                        <p>관리자가 이음선을 기기 소유자(Device Owner)로 이미 등록한 기기에서만 사용 가능합니다. 일반 설치로 관리 권한을 얻을 수는 없습니다.</p>
+                        <p>앱 화면에서 매번 확인한 뒤 최대 2분간 확인합니다. 앱 기준 와이파이 1~2칸이 6초 이상, 검증되고 차단되지 않은 모바일 경로가 2초 이상 이어지면 와이파이 끄기를 한 번만 요청합니다. VPN 또는 와이파이 접속 인증 화면이 감지되면 시도하지 않습니다.</p>
+                        <p>다른 앱의 연결과 모바일 요금에 영향이 있을 수 있습니다. 와이파이는 앱 또는 Android 설정에서 다시 켤 수 있습니다.</p>
+                    </aside>
                 </div>
+            </section>
+
+            <section class="permissions frame" id="permissions" aria-labelledby="permissions-title">
+                <div>
+                    <p class="section-kicker">권한</p>
+                    <h2 id="permissions-title">왜 필요한가요?</h2>
+                </div>
+                <dl class="permission-list">
+                    <div>
+                        <dt>네트워크 상태 읽기</dt>
+                        <dd>현재 기본 연결과 Android가 표시하는 인터넷 검증 및 인증 필요 상태를 확인합니다. <code>ACCESS_NETWORK_STATE</code></dd>
+                    </div>
+                    <div>
+                        <dt>와이파이 상태 읽기</dt>
+                        <dd>앱에 와이파이 신호 세기를 표시합니다. <code>ACCESS_WIFI_STATE</code></dd>
+                    </div>
+                    <div>
+                        <dt>모바일 경로 대기 요청</dt>
+                        <dd>사용자 선택에 따라 Android에 모바일 연결 준비를 요청합니다. 이 권한만으로 기기 전체를 강제로 전환하지 않습니다. <code>CHANGE_NETWORK_STATE</code></dd>
+                    </div>
+                    <div>
+                        <dt>와이파이 상태 변경</dt>
+                        <dd>이음선이 기기 소유자로 이미 등록된 관리 기기에서만, 사용자가 이번 전환을 확인한 뒤 와이파이 끄기와 복구를 요청합니다. <code>CHANGE_WIFI_STATE</code></dd>
+                    </div>
+                </dl>
             </section>
 
         </main>
@@ -171,6 +240,7 @@
                 <span>이음선<span class="wordmark-latin">IEUMSEON</span></span>
             </a>
             <nav aria-label="프로젝트">
+                <a href="https://github.com/hslcrb/ieumseon/releases/tag/v0.2.0-alpha.1">알파 릴리스 <span aria-hidden="true">↗</span></a>
                 <a href="https://github.com/hslcrb/ieumseon">GitHub <span aria-hidden="true">↗</span></a>
                 <a href="https://github.com/hslcrb/ieumseon/blob/main/docs/DEVLOG.md">개발기 <span aria-hidden="true">↗</span></a>
             </nav>

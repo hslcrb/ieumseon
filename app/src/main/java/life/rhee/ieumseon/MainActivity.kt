@@ -1,6 +1,7 @@
 package life.rhee.ieumseon
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -26,6 +27,14 @@ class MainActivity : Activity() {
     private lateinit var monitor: NetworkMonitor
     private lateinit var statusTitle: TextView
     private lateinit var statusMessage: TextView
+    private lateinit var signalReading: TextView
+    private lateinit var internetButton: Button
+    private lateinit var autoMessage: TextView
+    private lateinit var autoButton: Button
+    private lateinit var managedPanel: LinearLayout
+    private lateinit var managedMessage: TextView
+    private lateinit var managedButton: Button
+    private lateinit var restoreButton: Button
     private lateinit var wifiReading: TextView
     private lateinit var mobileReading: TextView
     private lateinit var standbyMessage: TextView
@@ -71,6 +80,8 @@ class MainActivity : Activity() {
 
         val status = surface()
         status.addView(label("기본 연결", 12, Muted, true))
+        signalReading = label("", 15, Mint, true).apply { visibility = View.GONE }
+        status.addView(signalReading, margin(5, 0))
         statusTitle = label("연결 확인 중", 30, Ivory, true).apply {
             isAccessibilityHeading = true
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -78,7 +89,8 @@ class MainActivity : Activity() {
         status.addView(statusTitle, margin(7, 5))
         statusMessage = label("Android가 보고하는 네트워크 상태를 읽고 있어요.", 15, Ivory)
         status.addView(statusMessage)
-        status.addView(button("인터넷 설정 열기", true, ::openInternetPanel), margin(17, 0))
+        internetButton = button("인터넷 설정 열기", true, ::openInternetPanel)
+        status.addView(internetButton, margin(17, 0))
         wifiSettingsButton = button("Wi‑Fi 자동 연결 설정", false, ::openWifiSettings).apply { visibility = View.GONE }
         status.addView(wifiSettingsButton, margin(7, 0))
         column.addView(status, margin(0, 14))
@@ -90,6 +102,26 @@ class MainActivity : Activity() {
         readings.addView(wifiReading, margin(12, 0))
         readings.addView(mobileReading, margin(7, 0))
         column.addView(readings, margin(0, 14))
+
+        val automatic = surface()
+        automatic.addView(label("1–2칸 자동 대기", 18, Ivory, true).apply { isAccessibilityHeading = true })
+        autoMessage = label("이 화면에서만, 약한 Wi‑Fi가 6초 지속되면 모바일 경로를 자동으로 요청합니다.", 15, Muted)
+        automatic.addView(autoMessage, margin(6, 4))
+        autoButton = button("자동 대기 켜기", false) {
+            monitor.setAutoMode(if (previousView?.autoMode == AutoMode.READINESS) AutoMode.OFF else AutoMode.READINESS)
+        }
+        automatic.addView(autoButton, margin(10, 0))
+        column.addView(automatic, margin(0, 14))
+
+        managedPanel = surface().apply { visibility = View.GONE }
+        managedPanel.addView(label("기기 소유자 · 관리 기기 전환", 18, Ivory, true).apply { isAccessibilityHeading = true })
+        managedMessage = label("", 15, Muted)
+        managedPanel.addView(managedMessage, margin(6, 4))
+        managedButton = button("관리 기기 자동 전환 준비", false, ::confirmManaged)
+        managedPanel.addView(managedButton, margin(10, 0))
+        restoreButton = button("Wi‑Fi 다시 켜기", true, monitor::restoreWifi)
+        managedPanel.addView(restoreButton, margin(8, 0))
+        column.addView(managedPanel, margin(0, 14))
 
         val standby = surface()
         standby.addView(label("모바일 대기", 18, Ivory, true).apply { isAccessibilityHeading = true })
@@ -106,7 +138,7 @@ class MainActivity : Activity() {
         column.addView(changes, margin(0, 15))
 
         column.addView(label(
-            "이음선은 다른 앱의 기본 경로를 강제로 바꾸거나 기존 통화·다운로드를 이어 주지 않습니다. " +
+            "일반 폰에서 기기 전체 전환은 Android 인터넷 설정에서 합니다. 기존 통화·다운로드의 무중단 전환을 보장하지 않습니다. " +
                 "주변 네트워크를 스캔하거나 이름·위치·트래픽을 저장하지 않아요.",
             13, Muted,
         ), margin(2, 0))
@@ -120,6 +152,20 @@ class MainActivity : Activity() {
     override fun onStop() {
         monitor.stop()
         super.onStop()
+    }
+
+    private fun confirmManaged() {
+        if (!monitor.deviceOwner) return
+        if (previousView?.autoMode == AutoMode.MANAGED) {
+            monitor.setAutoMode(AutoMode.OFF)
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("관리 기기에서 이번 전환을 준비할까요?")
+            .setMessage("이 화면에서 최대 2분간 관측합니다. Wi‑Fi 1–2칸이 6초 지속되고 모바일 인터넷이 확인되면 Wi‑Fi를 끄도록 한 번 요청합니다. 다른 앱도 영향을 받고 모바일 요금이 발생할 수 있습니다. 무중단을 보장하지 않습니다. Wi‑Fi는 이 앱 또는 Android 설정에서 다시 켤 수 있습니다.")
+            .setNegativeButton("취소", null)
+            .setPositiveButton("한 번 준비") { _, _ -> monitor.setAutoMode(AutoMode.MANAGED) }
+            .show()
     }
 
     private fun openInternetPanel() {
@@ -142,6 +188,10 @@ class MainActivity : Activity() {
         if (view == previousView) return
         previousView = view
         val ready = view.snapshot.mobileAvailable
+        val bars = view.snapshot.wifi?.bars
+        signalReading.visibility = if (bars != null) View.VISIBLE else View.GONE
+        if (bars != null) update(signalReading, "Wi‑Fi 신호  $bars / 5칸")
+        update(internetButton, if (view.weakWifi && ready) "모바일 전환 설정 열기" else "인터넷 설정 열기")
         val option = if (ready) "모바일 경로가 검증됐어요. 인터넷 설정에서 전환할 수 있습니다."
         else "모바일 경로도 아직 검증되지 않았어요. 인터넷 설정에서 상태를 확인해 보세요."
         val (title, detail) = when (view.advice) {
@@ -165,10 +215,36 @@ class MainActivity : Activity() {
         wifiSettingsButton.visibility = if (openWifi) View.VISIBLE else View.GONE
         update(wifiReading, "Wi‑Fi   /   " + describe(view.snapshot.wifi))
         update(mobileReading, "모바일   /   " + describe(view.snapshot.cellular))
+        update(autoMessage, when (view.autoMode) {
+            AutoMode.OFF -> "이 화면에서만, Wi‑Fi 1–2칸이 6초 지속되면 모바일 경로를 자동으로 요청합니다. 실제 전환은 Android 설정에서 합니다."
+            AutoMode.READINESS -> if (view.weakWifi && ready) "모바일 경로 검증됨 · 위의 전환 설정을 열어 Wi‑Fi를 끄세요."
+                else "켜짐 · 같은 Wi‑Fi에서 1–2칸이 6초 이어지면 모바일 경로를 한 번 요청합니다."
+            AutoMode.MANAGED -> "관리 기기 모드에서 약한 Wi‑Fi와 모바일 경로를 확인 중입니다."
+        })
+        update(autoButton, if (view.autoMode == AutoMode.READINESS) "자동 대기 끄기" else "자동 대기 켜기")
+        autoButton.isEnabled = view.autoMode != AutoMode.MANAGED
+        autoButton.alpha = if (autoButton.isEnabled) 1f else 0.6f
+        managedPanel.visibility = if (view.deviceOwner || view.restoreNeeded) View.VISIBLE else View.GONE
+        managedButton.visibility = if (view.deviceOwner && !view.restoreNeeded) View.VISIBLE else View.GONE
+        update(managedButton, if (view.autoMode == AutoMode.MANAGED) "이번 자동 전환 취소" else "관리 기기 자동 전환 준비")
+        restoreButton.visibility = if (view.restoreNeeded) View.VISIBLE else View.GONE
+        update(restoreButton, if (view.deviceOwner) "Wi‑Fi 다시 켜기" else "Android Wi‑Fi 설정 열기")
+        restoreButton.setOnClickListener { if (view.deviceOwner) monitor.restoreWifi() else openWifiSettings() }
+        restoreButton.isEnabled = view.radioSwitch != RadioSwitch.RESTORING
+        update(managedMessage, when (view.radioSwitch) {
+            RadioSwitch.IDLE -> if (view.restoreNeeded) "앞서 요청한 Wi‑Fi 끄기를 되돌릴 수 있습니다."
+                else if (view.autoMode == AutoMode.MANAGED) "모바일 후보 확인 중 · 검증 전에는 Wi‑Fi를 끄지 않습니다."
+                else "이음선이 기기 소유자로 등록된 경우에만 한 번의 관측 세션을 준비할 수 있습니다."
+            RadioSwitch.REQUESTED -> "Wi‑Fi 끄기 요청을 접수했습니다. 실제 모바일 기본 경로를 확인 중입니다."
+            RadioSwitch.MOBILE_DEFAULT -> "Wi‑Fi가 꺼지고 검증된 모바일 기본 경로가 관측됐습니다."
+            RadioSwitch.RESTORING -> "Wi‑Fi 다시 켜기 요청을 접수했습니다. 실제 상태를 확인 중입니다."
+            RadioSwitch.RESTORED -> "Android에서 Wi‑Fi 켜짐을 확인했습니다. 다시 자동 전환하려면 새로 준비하세요."
+            RadioSwitch.FAILED -> "전환 또는 복구를 확인하지 못했어요. Android 인터넷 설정을 확인해 주세요."
+        })
         update(standbyMessage, when (view.standby) {
             Standby.OFF -> "이 화면을 보면서 최대 2분 동안 모바일 경로를 요청합니다. 배터리 소모가 늘 수 있어요."
             Standby.REQUESTING -> "Android에 모바일 경로를 요청하는 중입니다. 약 15초 안에 경로가 없으면 요청을 해제합니다."
-            Standby.HELD -> if (ready) "모바일 인터넷이 검증됐어요. 기본 경로는 아직 바꾸지 않았습니다."
+            Standby.HELD -> if (ready) "모바일 인터넷이 검증됐어요. 실제 기본 경로는 위에서 확인하세요."
                 else "모바일 경로가 보이지만 아직 인터넷이 검증되지 않았어요."
             Standby.UNAVAILABLE -> "모바일 경로를 유지할 수 없었어요. 데이터 설정과 수신 상태를 확인해 주세요."
             Standby.EXPIRED -> "2분 대기 요청을 해제했어요. 필요하면 다시 시작할 수 있습니다."
@@ -184,7 +260,7 @@ class MainActivity : Activity() {
     private fun describe(link: Link?): String {
         if (link == null) return "감지되지 않음"
         val label = when {
-            link.blocked -> "사용 불가"
+            link.blocked || link.suspended -> "사용 불가"
             link.portal -> "로그인 필요"
             link.usable -> "인터넷 확인됨"
             else -> "인터넷 미검증"
@@ -195,7 +271,9 @@ class MainActivity : Activity() {
             WiFiSecurity.ENCRYPTED -> "암호화"
             WiFiSecurity.UNKNOWN -> "보안 유형 미확인"
         }
-        return "$label · $security · ${link.rssi?.let { "$it dBm" } ?: "신호 미제공"}"
+        val strength = link.bars?.let { "$it/5칸" } ?: "신호 미제공"
+        val rssi = link.rssi?.let { " ($it dBm)" }.orEmpty()
+        return "$label · $security · $strength$rssi"
     }
 
     private fun transportName(transport: Transport): String = when (transport) {

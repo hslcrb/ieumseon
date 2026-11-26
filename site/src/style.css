@@ -535,3 +535,239 @@ h3 {
         scroll-behavior: auto;
     }
 }
+
+.handoff,
+.permissions {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    align-items: center;
+    gap: clamp(1.65rem, 6vw, 6rem);
+    padding-block: clamp(3rem, 6vw, 5.25rem);
+}
+
+.handoff {
+    border-top: 1px solid var(--line);
+}
+
+.handoff-copy > p:not(.section-kicker) {
+    max-inline-size: 31rem;
+    margin-block: 1.1rem 1.5rem;
+    color: var(--muted);
+}
+
+.handoff-steps {
+    max-inline-size: 30rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.handoff-steps li {
+    display: grid;
+    grid-template-columns: 2.8rem minmax(0, 1fr);
+    gap: 0.8rem;
+    padding-block: 0.62rem;
+    border-top: 1px solid var(--line);
+}
+
+.handoff-steps strong {
+    color: #286449;
+}
+
+.handoff-steps li span {
+    color: var(--muted);
+}
+
+.handoff-figure {
+    display: grid;
+    justify-items: center;
+    gap: 1rem;
+    align-self: stretch;
+    align-content: center;
+    padding: clamp(1.2rem, 4.2vw, 2.8rem);
+    border-radius: 0.95rem;
+    background: repeating-linear-gradient(135deg, transparent 0 15px, rgb(136 203 168 / 8%) 15px 16px), #133c33;
+    color: var(--ivory);
+}
+
+.mock-chassis {
+    inline-size: min(100%, 21.3rem);
+    border: 1px solid #627d6b;
+    border-radius: 1.7rem;
+    padding: 0.55rem;
+    background: #071b1b;
+    box-shadow: 0 1rem 2.8rem rgb(2 21 19 / 44%);
+}
+
+.mock-screen {
+    display: grid;
+    gap: 0.68rem;
+    padding: clamp(0.85rem, 3vw, 1.35rem);
+    border-radius: 1.15rem;
+    background: var(--ivory);
+    color: var(--marine);
+}
+
+.mock-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.52rem;
+    font-size: 0.93rem;
+    font-weight: 790;
+}
+
+.mock-heading {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 750;
+}
+
+.mock-readout {
+    padding: 0.76rem;
+    border-radius: 0.5rem;
+    background: #f3e8c7;
+}
+
+.mock-wifi {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.25rem 0.6rem;
+}
+
+.mock-wifi > span,
+.mock-cell > div {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.mock-readout > p {
+    color: #664b27;
+    font-size: 0.77rem;
+}
+
+.signal-value {
+    color: #664b27;
+    font: bold 0.76rem var(--mono);
+}
+
+.signal-bars {
+    display: inline-flex;
+    align-items: end;
+    gap: 0.13rem;
+}
+
+.signal-bars i {
+    inline-size: 0.18rem;
+    block-size: 0.26rem;
+    border-radius: 0.08rem;
+    background: #865d27;
+}
+
+.signal-bars i:nth-child(2) {
+    block-size: 0.38rem;
+}
+
+.signal-bars i:nth-child(3) {
+    block-size: 0.5rem;
+}
+
+.signal-bars i:nth-child(4) {
+    block-size: 0.62rem;
+}
+
+.signal-bars i:nth-child(5) {
+    block-size: 0.74rem;
+}
+
+.signal-bars i:nth-child(n+3) {
+    background: #c6af85;
+}
+
+.mock-cell {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 0.45rem;
+    padding: 0.72rem 0.76rem;
+    border-radius: 0.5rem;
+    background: #e4efd9;
+    color: #22583d;
+    font-size: 0.82rem;
+}
+
+.mock-dot {
+    inline-size: 0.43rem;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #2a7b52;
+}
+
+.mock-action {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.65rem;
+    border-radius: 0.5rem;
+    padding: 0.67rem 0.76rem;
+    background: var(--marine);
+    color: var(--mint);
+    font-size: 0.83rem;
+    font-weight: 750;
+}
+
+.handoff-figure figcaption {
+    max-inline-size: 22rem;
+    color: #d0e4da;
+    font-size: 0.81rem;
+}
+
+.permissions {
+    align-items: start;
+    border-top: 1px solid var(--line);
+}
+
+.permission-list div {
+    padding-block: 0.82rem;
+    border-top: 1px solid var(--line);
+}
+
+.permission-list div:last-child {
+    border-bottom: 1px solid var(--line);
+}
+
+.permission-list dt {
+    font-size: 1.04rem;
+    font-weight: 785;
+}
+
+.permission-list dd {
+    color: var(--muted);
+}
+
+@media (max-width: 42rem) {
+    .handoff,
+    .permissions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.permission-list code {
+    display: block;
+    margin-block-start: 0.25rem;
+    color: #286449;
+    font: 0.78rem/1.4 var(--mono);
+    overflow-wrap: anywhere;
+}
+
+.owner-note {
+    margin-block-start: 1.35rem;
+    padding: 1rem 1rem 1rem 1.2rem;
+    border-inline-start: 0.22rem solid #527862;
+    background: #e5edda;
+}
+
+.owner-note h3 {
+    margin-block-end: 0.45rem;
+}

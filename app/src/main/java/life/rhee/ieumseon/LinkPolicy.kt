@@ -14,10 +14,13 @@ internal data class Link(
     val validated: Boolean = false,
     val portal: Boolean = false,
     val blocked: Boolean = false,
+    val suspended: Boolean = false,
+    val blockedStatusKnown: Boolean = false,
     val rssi: Int? = null,
+    val bars: Int? = null,
     val security: WiFiSecurity = WiFiSecurity.UNKNOWN,
 ) {
-    val usable: Boolean get() = validated && !portal && !blocked
+    val usable: Boolean get() = validated && !portal && !blocked && !suspended
 }
 
 internal data class LinkSnapshot(
@@ -28,41 +31,79 @@ internal data class LinkSnapshot(
     val mobileAvailable: Boolean get() = cellular?.usable == true
 }
 
+internal fun normalizeBars(level: Int, platformMaximum: Int): Int? {
+    if (platformMaximum <= 0 || level !in 0..platformMaximum) return null
+    return 1 + ((level.toLong() * 4 + platformMaximum / 2) / platformMaximum).toInt()
+}
+
 internal class WeakSignalTracker {
     private var wifiId: Long? = null
     private var weakSince: Long? = null
-    private var weak = false
 
     fun sample(wifi: Link?, nowMillis: Long): Boolean {
         if (wifi?.id != wifiId) {
             wifiId = wifi?.id
             weakSince = null
-            weak = false
         }
-        val rssi = wifi?.rssi
-        if (rssi == null) {
+        if (wifi?.transport != Transport.WIFI || wifi.bars !in 1..2) {
             weakSince = null
-            weak = false
             return false
         }
-        if (rssi >= RECOVERY_RSSI) {
-            weakSince = null
-            weak = false
-            return false
-        }
-        if (rssi <= WEAK_RSSI) {
-            val since = weakSince ?: nowMillis.also { weakSince = it }
-            if (nowMillis - since >= WEAK_DURATION_MS) weak = true
-        } else if (!weak) {
-            weakSince = null
-        }
-        return weak
+        val since = weakSince ?: nowMillis.also { weakSince = it }
+        return nowMillis - since >= WEAK_DURATION_MS
     }
 
     companion object {
-        const val WEAK_RSSI = -76
-        const val RECOVERY_RSSI = -68
         const val WEAK_DURATION_MS = 6_000L
+    }
+}
+
+internal enum class AutoMode { OFF, READINESS, MANAGED }
+
+internal class WeakEpisode {
+    private var requestedWifi: Long? = null
+
+    fun reset() { requestedWifi = null }
+
+    fun consume(primary: Link?, weak: Boolean): Boolean {
+        if (!weak || primary?.transport != Transport.WIFI) {
+            requestedWifi = null
+            return false
+        }
+        if (requestedWifi == primary.id) return false
+        requestedWifi = primary.id
+        return true
+    }
+}
+
+internal class ManagedSwitchGate {
+    private var cellId: Long? = null
+    private var readySince: Long? = null
+
+    fun sample(
+        authorized: Boolean,
+        primary: Link?,
+        weak: Boolean,
+        requestedCellular: Link?,
+        nowMillis: Long,
+    ): Boolean {
+        if (!authorized || primary?.transport != Transport.WIFI || primary.portal ||
+            primary.bars !in 1..2 || !weak || requestedCellular?.transport != Transport.CELLULAR ||
+            !requestedCellular.usable || !requestedCellular.blockedStatusKnown
+        ) {
+            cellId = null
+            readySince = null
+            return false
+        }
+        if (cellId != requestedCellular.id) {
+            cellId = requestedCellular.id
+            readySince = nowMillis
+        }
+        return nowMillis - (readySince ?: nowMillis) >= STABLE_MOBILE_MS
+    }
+
+    companion object {
+        const val STABLE_MOBILE_MS = 2_000L
     }
 }
 
@@ -70,13 +111,13 @@ internal fun advise(snapshot: LinkSnapshot, weak: Boolean): Advisory {
     val primary = snapshot.primary ?: return Advisory.NO_ROUTE
     return when (primary.transport) {
         Transport.WIFI -> when {
-            primary.blocked -> Advisory.UNVERIFIED_WIFI
+            primary.blocked || primary.suspended -> Advisory.UNVERIFIED_WIFI
             primary.portal -> Advisory.SIGN_IN_WIFI
             !primary.usable -> Advisory.UNVERIFIED_WIFI
             weak && primary.security == WiFiSecurity.OPEN -> Advisory.WEAK_OPEN_WIFI
             weak -> Advisory.WEAK_WIFI
             primary.security == WiFiSecurity.OPEN -> Advisory.OPEN_WIFI
-            primary.rssi == null -> Advisory.WIFI_SIGNAL_UNAVAILABLE
+            primary.bars == null -> Advisory.WIFI_SIGNAL_UNAVAILABLE
             else -> Advisory.HEALTHY_WIFI
         }
         Transport.CELLULAR -> if (primary.usable) Advisory.MOBILE_VALIDATED else Advisory.MOBILE_UNVERIFIED

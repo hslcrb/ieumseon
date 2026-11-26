@@ -40,3 +40,39 @@ Kotlin 컴파일과 API 35 Android SDK의 AAPT2·D8을 이용한 패키징을 �
 ### Cloudflare Pages 첫 배포
 
 소개 페이지를 `hslcrb/ieumseon`의 `main`에 반영한 뒤, Cloudflare Pages GitHub 연동으로 실제 [운영 주소](https://ieumseon.pages.dev/)에 배포했다. 설정은 `site/` 루트, `npm run build`, `dist/`, Node 22, 운영 브랜치 `main`이다. 첫 운영 배포는 성공했다. Android 패키지는 Vite 정적 산출물에 포함하지 않았다.
+
+## v0.2.0-alpha.1 · 1–2칸 선제 전환
+
+첫 버전은 RSSI의 고정 임계치로 경고를 띄웠다. 이번 버전은 이동 중 사용자가 실제로 보는 기준인 **5칸 중 1–2칸**을 앱 안에도 표시한다. Android가 보고하는 신호 수준이 기기마다 같은 칸 수가 아닐 수 있어 앱 게이지에서 다섯 칸으로 정규화한다. Android 10은 플랫폼의 5단계 변환을 사용한다. 강도 값 자체가 없으면 위험이라고 추정하지 않는다. 자동 대기 옵션이 켜져 있어도 약함이 6초 연속 지속될 때만 반응하며 새로운 연결이나 회복에서 다시 센다. 이 설계는 걸어가며 겪는 순간적인 흔들림을 따라 과도하게 요청하는 일을 줄이기 위한 것이다.
+
+### 전환을 시작하는 조건과 전환이 끝났다는 증거
+
+1. 앱이 실제 기본 네트워크를 Wi‑Fi로 보고할 때 취약 상태를 평가한다.
+2. 일반 Android에서는 사용자가 선택한 자동 대기 옵션에 따라 셀룰러 네트워크를 잠시 요청한다. 요청 수락 또는 신호만으로 '전환 완료'라고 표시하지 않는다. 기본 경로를 바꾸려면 앱의 인터넷 설정 버튼을 사용한다.
+3. 별도로 켠 관리형 모드에서는 기기 소유자 여부를 먼저 확인한다. 인터넷이 검증되고 차단 여부도 확인된 셀룰러 경로가 안정적으로 보이면 Wi‑Fi 끄기를 요청할 수 있다. 호출 성공과 실제 기본 경로 전환은 다른 사건이며, Android 기본 네트워크 피드백으로 나눠 기록한다.
+4. Wi‑Fi가 꺼진 뒤 앱 모니터링을 그만두면 앱에 의존해서 연결이 복원되지 않도록 되돌리기 경로와 Android 인터넷 설정을 제공한다. 알 수 없는 상태, 거부, 소유권 상실, 모바일 데이터 없음에서는 자동으로 더 강한 권한을 얻으려고 하지 않는다.
+
+### 권한을 늘린 이유와 넣지 않은 것
+
+일반 설치에서 앱에 `CHANGE_WIFI_STATE`가 선언되어 있어도 최신 Android는 임의 Wi‑Fi 토글을 허용하지 않는다. 이 권한은 별도 관리 환경의 공식 예외에서만 가치가 있다. 위치, VPN, 접근성 서비스, 루트 및 레거시 SDK를 통한 우회는 도입하지 않았다. Wi‑Fi를 끌 수 있는 환경에서도 그것만으로 다른 앱의 기존 소켓이나 통화가 새 경로로 이동하지 않으므로, '끊김 없는 자동 핸드오버'라고 이름 붙이지 않았다.
+
+참조: [Android 10 Wi‑Fi 변경 제한](https://developer.android.com/about/versions/10/privacy/changes#configure-wifi) · [WifiManager 공식 API](https://developer.android.com/reference/android/net/wifi/WifiManager) · [DevicePolicyManager](https://developer.android.com/reference/android/app/admin/DevicePolicyManager) · [ConnectivityManager](https://developer.android.com/reference/android/net/ConnectivityManager).
+
+### 권한 대안 비교
+
+| 후보 | 검토 결과 |
+| --- | --- |
+| 일반 기기 관리자(Device Admin) 활성화 | 비밀번호·관리 정책을 위한 레거시 역할이다. 일반 관리자가 되더라도 Wi‑Fi 토글 예외가 생기지 않으므로 사용자에게 활성화를 요구하지 않는다. |
+| 기기 소유자(Device Owner) | 완전 관리 단말에서 Android Wi‑Fi 토글 예외를 쓸 수 있다. 앱은 소유자 여부를 확인할 뿐 소유자 지정이나 회사 정책 변경은 하지 않는다. 수동 동의가 2분 지나면 만료된다. |
+| 작업 프로필의 Profile Owner | Android API에 관련 예외가 있으나 이 버전은 프로필 소유자만 있는 개인 단말에 안전하다고 가정하지 않는다. 기기 소유자만 허용한다. |
+| 통신사·시스템 권한 | 일반 앱 설치가 얻을 수 있는 권한이 아니다. 모바일 데이터가 꺼져 있을 때 앱이 몰래 켜지 않는다. |
+| 다른 앱 트래픽을 다루는 VPN | 동의 후 라우팅할 수 있지만 Wi‑Fi 무음 토글 권한이나 기존 연결 보존을 자동으로 얻지는 못한다. 추가 인프라와 데이터 처리 범위를 요구하므로 제외했다. |
+| 접근성 자동 클릭·루트·낮은 target SDK | 시스템 권한을 대신하는 안정적인 방법이 아니고 UI 상태나 보안 모델을 깨뜨릴 수 있다. 구현하지 않았다. |
+
+관리 게이트는 Wi‑Fi 로그인 포털 및 VPN을 피하고, 별도로 요청한 셀룰러의 검증 및 차단 여부가 2초 동안 안정됐을 때만 최초 한 번 Wi‑Fi 끄기를 요청한다. 기기 기본 경로를 8초 이내 확인하지 못하면 화면이 보이는 동안 복구를 한 번 시도한다. 이전 Wi‑Fi 상태로 되돌려야 하는 표식은 로컬에 보존해 앱을 다시 열었을 때 복구 버튼을 제공한다. 이 표식은 SSID·위치·패킷을 담지 않는다. 관리자가 Wi‑Fi를 다시 켜거나 앱의 만료 시간이 지나도 자동으로 재전환하지 않는다.
+
+### 알파 빌드와 검증
+
+공식 Android SDK 35의 AAPT2·D8 및 Kotlin을 사용해 APK를 만들고 서명을 검증했다. Android 10 이상을 대상으로 하며, 패키지 이름은 `life.rhee.ieumseon`, 버전 코드는 2다. v0.1의 테스트 APK와 같은 디버그 인증서로 서명해 앱 업그레이드가 가능하도록 했다. 정책 단위 테스트 12개가 통과했다. 기기 소유자 지정, 샘플 검증, 운영 통신망의 지연과 전환은 서로 다른 검증이므로 결과를 섞지 않는다.
+
+추가 참조: [Device Administration](https://developer.android.com/work/device-admin) · [VPN 서비스](https://developer.android.com/develop/connectivity/vpn).
