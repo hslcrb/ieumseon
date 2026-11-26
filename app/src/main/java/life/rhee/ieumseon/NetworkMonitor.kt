@@ -28,7 +28,8 @@ internal data class MonitorView(
     val radioSwitch: RadioSwitch,
 )
 
-internal class NetworkMonitor(private val context: Context, private val publish: (MonitorView) -> Unit) {
+internal class NetworkMonitor(private val context: Context, private val managedControl: Boolean = true,
+    private val publish: (MonitorView) -> Unit) {
     private val manager = requireNotNull(context.getSystemService(ConnectivityManager::class.java))
     private val wifiManager = context.getSystemService(WifiManager::class.java)
     private val policies = context.getSystemService(DevicePolicyManager::class.java)
@@ -48,7 +49,6 @@ internal class NetworkMonitor(private val context: Context, private val publish:
     private val history = ArrayDeque<Handover>()
     private var running = false
     private var mode = AutoMode.OFF
-    private var managedUntil = 0L
     private var autostandby = false
     private val episode = WeakEpisode()
     private var switchGate = ManagedSwitchGate()
@@ -177,9 +177,8 @@ internal class NetworkMonitor(private val context: Context, private val publish:
     }
 
     fun setAutoMode(next: AutoMode) {
-        if (!running || (next == AutoMode.MANAGED && (!deviceOwner || restoreNeeded))) return
+        if (!running || (next == AutoMode.MANAGED && (!managedControl || !deviceOwner || restoreNeeded))) return
         mode = next
-        managedUntil = if (next == AutoMode.MANAGED) SystemClock.elapsedRealtime() + MANAGED_ARM_MS else 0L
         episode.reset()
         switchGate = ManagedSwitchGate()
         if (next == AutoMode.OFF && autostandby) releaseStandby(Standby.OFF)
@@ -280,12 +279,9 @@ internal class NetworkMonitor(private val context: Context, private val publish:
         val now = SystemClock.elapsedRealtime()
         val currentWifi = primary?.takeIf { it.transport == Transport.WIFI && defaultNetwork?.networkHandle == it.id }
         val weakWifi = weak.sample(currentWifi, now)
-        if (mode == AutoMode.MANAGED && now >= managedUntil) {
-            mode = AutoMode.OFF
-            if (autostandby) releaseStandby(Standby.OFF)
-        }
         if (mode != AutoMode.OFF && episode.consume(currentWifi, weakWifi)) requestStandby(automatic = true)
-        updateManagedRadio(primary, weakWifi, now)
+        if (managedControl) updateManagedRadio(primary, weakWifi, now)
+        else restoreNeeded = preferences.getBoolean("restore-needed", false)
         handover.sample(primary, now)?.let {
             history.addFirst(it)
             if (history.size > 4) history.removeLast()
@@ -369,7 +365,6 @@ internal class NetworkMonitor(private val context: Context, private val publish:
 
     companion object {
         private const val RADIO_CHECK_MS = 8_000L
-        private const val MANAGED_ARM_MS = 120_000L
     }
 
     private fun link(network: Network, caps: NetworkCapabilities, blocked: Boolean?): Link {

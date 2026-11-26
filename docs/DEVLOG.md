@@ -77,6 +77,10 @@ Kotlin 컴파일과 API 35 Android SDK의 AAPT2·D8을 이용한 패키징을 �
 
 추가 참조: [Device Administration](https://developer.android.com/work/device-admin) · [VPN 서비스](https://developer.android.com/develop/connectivity/vpn).
 
-### 화면 자료와 공개 확인
+## v0.3.0-alpha.1 · 화면 밖 관리형 전환과 공공 Wi‑Fi 프로필
 
-README 화면은 Vite 소개 페이지에서 캡처한 **앱 목업**이다. 하드웨어 가속 없이 Android 에뮬레이터를 시작했으나 제한 시간 안에 부팅이 완료되지 않아 실제 앱 캡처나 설치 실행, Device Owner 실기 전환은 검증하지 못했다. [알파 프리릴리즈](https://github.com/hslcrb/ieumseon/releases/tag/v0.2.0-alpha.1)의 공개 APK는 GitHub가 계산한 SHA‑256이 빌드본과 일치한다. 같은 소스 커밋에서 Cloudflare Pages GitHub 자동 배포 성공도 확인했다.
+관리형 자동 모드를 화면의 수명과 분리했다. 이미 Device Owner인 앱에서 사용자가 감시를 한 번 시작하면 포그라운드 서비스가 약한 신호를 계속 감시한다. API 34부터 기기 소유자 역할에 맞는 `systemExempted` 서비스 유형을 사용한다. 중지 알림을 보일 수 없으면 시작하지 않으며, 구독·모니터를 중지하고 Wi‑Fi 복구를 요청할 수 있다. 일반 설치에 이 전환 능력을 제공하는 공개 Android 권한은 확인되지 않았다. 재부팅·강제 종료 후 자동 시작하지 않으며, 한 감시 세션에서 한 번만 전환을 시도해 같은 AP 주변에서 반복으로 끄고 켜는 일을 피한다. 화면이 꺼진 상태에서는 절전 정책 때문에 처리 지연이 달라질 수 있다. [Android 서비스 유형](https://developer.android.com/reference/android/content/pm/ServiceInfo#FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+
+수원 공공장소·전국 버스 자료에서는 서로 다른 보안 SSID가 확인됐다. 전국 공공와이파이 문서에는 시스템 인증서 경로에서 `wifisecure.kr` 안내가 있지만 수원 버스 전체의 인증 서버·루트 CA로 확인할 수 없어서 앱에 고정하지 않았다. 공식 안내판의 정확한 이름과 운영사 CA·도메인이 사용자에게 제공된 경우에만, 공개 계정 `wifi / wifi`를 미리 채운 Android 네트워크 추가 화면을 연다. Android 11 이상의 [기업형 Wi‑Fi 보안 구성](https://developer.android.com/guide/topics/connectivity/wifi-enterprise)에 맞춰 검증을 비활성화하지 않는다. SSID가 같아도 실제 탑승 차량을 구분할 수 없으므로 주변 AP를 자동 스캔하거나 `Secure`라는 이름만 보고 접속하지 않는다.
+
+SDK 35로 APK 빌드와 서명을 확인했고, JUnit 13개 및 Vite 빌드가 통과했다. 실제 차량의 인증·관리 기기의 무선 전환은 시험하지 않았다.

@@ -1,5 +1,8 @@
 package life.rhee.ieumseon
 
+import android.Manifest
+import android.app.NotificationManager
+import android.content.pm.PackageManager
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
@@ -16,6 +19,9 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.widget.Button
+import android.widget.EditText
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -41,13 +47,14 @@ class MainActivity : Activity() {
     private lateinit var standbyButton: Button
     private lateinit var wifiSettingsButton: Button
     private lateinit var events: TextView
+    private var busProfile: Triple<String, String, String>? = null
     private var previousView: MonitorView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Marine
         window.navigationBarColor = Marine
-        monitor = NetworkMonitor(applicationContext, ::render)
+        monitor = NetworkMonitor(applicationContext, managedControl = false, publish = ::render)
         val page = ScrollView(this).apply {
             isFillViewport = true
             setBackgroundColor(Marine)
@@ -131,6 +138,12 @@ class MainActivity : Activity() {
         standby.addView(standbyButton, margin(10, 0))
         column.addView(standby, margin(0, 14))
 
+        val bus = surface()
+        bus.addView(label("공공·버스 Wi‑Fi", 18, Ivory, true).apply { isAccessibilityHeading = true })
+        bus.addView(label("안내판에서 SSID를 확인한 뒤, 운영사가 제공한 인증서와 서버 이름으로 한 번 저장하면 Android가 재접속을 관리합니다.", 15, Muted), margin(7, 0))
+        bus.addView(button("보안 Wi‑Fi 등록", false, ::chooseBusNetwork), margin(10, 0))
+        column.addView(bus, margin(0, 14))
+
         val changes = surface()
         changes.addView(label("최근 전환", 18, Ivory, true).apply { isAccessibilityHeading = true })
         events = label("이 화면에서 확인한 전환이 없어요.", 15, Muted)
@@ -156,16 +169,95 @@ class MainActivity : Activity() {
 
     private fun confirmManaged() {
         if (!monitor.deviceOwner) return
-        if (previousView?.autoMode == AutoMode.MANAGED) {
-            monitor.setAutoMode(AutoMode.OFF)
+        if (ManagedService.active) {
+            stopService(Intent(this, ManagedService::class.java))
             return
         }
         AlertDialog.Builder(this)
-            .setTitle("관리 기기에서 이번 전환을 준비할까요?")
-            .setMessage("이 화면에서 최대 2분간 관측합니다. Wi‑Fi 1–2칸이 6초 지속되고 모바일 인터넷이 확인되면 Wi‑Fi를 끄도록 한 번 요청합니다. 다른 앱도 영향을 받고 모바일 요금이 발생할 수 있습니다. 무중단을 보장하지 않습니다. Wi‑Fi는 이 앱 또는 Android 설정에서 다시 켤 수 있습니다.")
+            .setTitle("관리형 자동 감시를 시작할까요?")
+            .setMessage("화면을 닫아도 감시합니다. Wi‑Fi 1–2칸이 6초 동안 지속되고 모바일 인터넷이 확인되면 Wi‑Fi 끄기를 한 번 요청합니다. 모바일 데이터 요금과 연결 끊김이 발생할 수 있습니다. 알림의 중지 버튼에서 Wi‑Fi 복구를 요청할 수 있습니다.")
             .setNegativeButton("취소", null)
-            .setPositiveButton("한 번 준비") { _, _ -> monitor.setAutoMode(AutoMode.MANAGED) }
-            .show()
+            .setPositiveButton("자동 감시 시작") { _, _ ->
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 19)
+                } else startManaged()
+            }.show()
+    }
+
+    override fun onRequestPermissionsResult(code: Int, names: Array<String>, results: IntArray) {
+        super.onRequestPermissionsResult(code, names, results)
+        if (code == 19 && results.firstOrNull() == PackageManager.PERMISSION_GRANTED) startManaged()
+    }
+
+    private fun startManaged() {
+        if (!getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
+            Toast.makeText(this, "중지 버튼을 표시할 수 있도록 이음선 알림을 허용해 주세요.", Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            monitor.setAutoMode(AutoMode.OFF)
+            startForegroundService(Intent(this, ManagedService::class.java).setAction(ManagedService.START))
+        } catch (_: RuntimeException) {
+            Toast.makeText(this, "Android가 관리형 감시 시작을 허용하지 않았어요.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun chooseBusNetwork() {
+        if (Build.VERSION.SDK_INT < 30) {
+            openWifiSettings()
+            return
+        }
+        AlertDialog.Builder(this).setTitle("안내판과 같은 이름을 선택하세요")
+            .setItems(BusWifi.profiles.toTypedArray()) { _, index -> enterBusTrust(BusWifi.profiles[index]) }
+            .setNegativeButton("취소", null).show()
+    }
+
+    private fun enterBusTrust(name: String) {
+        val form = stack().apply { setPadding(dp(22), dp(6), dp(22), dp(4)) }
+        val domain = EditText(this).apply { hint = "운영사가 안내한 인증 서버 도메인"; isSingleLine = true }
+        val ap = EditText(this).apply { hint = "차량 AP 주소(BSSID, 확인했을 때만)"; isSingleLine = true }
+        form.addView(domain)
+        form.addView(ap)
+        val dialog = AlertDialog.Builder(this).setTitle(name).setView(form)
+            .setMessage("SSID만으로 탑승 차량을 식별할 수 없습니다. 운영사가 안내한 서버 도메인과 CA 파일이 모두 필요합니다.")
+            .setPositiveButton("CA 인증서 선택", null).setNegativeButton("취소", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val suffix = domain.text.toString().trim()
+                val bssid = ap.text.toString().trim()
+                if (!BusWifi.validDomain(suffix)) { domain.error = "정확한 도메인을 입력해 주세요."; return@setOnClickListener }
+                if (bssid.isNotEmpty() && !BusWifi.validBssid(bssid)) { ap.error = "AP 주소 형식을 확인해 주세요."; return@setOnClickListener }
+                busProfile = Triple(name, suffix, bssid)
+                try {
+                    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), 20)
+                    dialog.dismiss()
+                } catch (_: ActivityNotFoundException) {
+                    busProfile = null
+                    Toast.makeText(this, "인증서 파일 선택기를 열 수 없어요.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    @Deprecated("Android Activity result used to keep this app dependency-free")
+    override fun onActivityResult(request: Int, result: Int, data: Intent?) {
+        super.onActivityResult(request, result, data)
+        if (request != 20) return
+        val entry = busProfile.also { busProfile = null } ?: return
+        val uri = data?.data ?: return
+        if (result != RESULT_OK || Build.VERSION.SDK_INT < 30) return
+        try {
+            val raw = contentResolver.openInputStream(uri)?.use { val bytes = ByteArray(65_537); var size = 0; while (size < bytes.size) { val n = it.read(bytes, size, bytes.size - size); if (n <= 0) break; size += n }; bytes.copyOf(size) } ?: error("missing CA")
+            require(raw.size <= 65_536)
+            val ca = CertificateFactory.getInstance("X.509")
+                .generateCertificate(raw.inputStream()) as X509Certificate
+            startActivity(BusWifi.addIntent(entry.first, entry.second, entry.third, ca))
+        } catch (_: Exception) {
+            Toast.makeText(this, "신뢰할 수 있는 CA 파일 또는 Android 등록 지원 여부를 확인해 주세요.", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun openInternetPanel() {
@@ -222,19 +314,19 @@ class MainActivity : Activity() {
             AutoMode.MANAGED -> "관리 기기 모드에서 약한 Wi‑Fi와 모바일 경로를 확인 중입니다."
         })
         update(autoButton, if (view.autoMode == AutoMode.READINESS) "자동 대기 끄기" else "자동 대기 켜기")
-        autoButton.isEnabled = view.autoMode != AutoMode.MANAGED
+        autoButton.isEnabled = !ManagedService.active
         autoButton.alpha = if (autoButton.isEnabled) 1f else 0.6f
         managedPanel.visibility = if (view.deviceOwner || view.restoreNeeded) View.VISIBLE else View.GONE
-        managedButton.visibility = if (view.deviceOwner && !view.restoreNeeded) View.VISIBLE else View.GONE
-        update(managedButton, if (view.autoMode == AutoMode.MANAGED) "이번 자동 전환 취소" else "관리 기기 자동 전환 준비")
+        managedButton.visibility = if (view.deviceOwner && (ManagedService.active || !view.restoreNeeded)) View.VISIBLE else View.GONE
+        update(managedButton, if (ManagedService.active) "감시 중지·Wi‑Fi 복구" else "관리 기기 자동 감시 시작")
         restoreButton.visibility = if (view.restoreNeeded) View.VISIBLE else View.GONE
         update(restoreButton, if (view.deviceOwner) "Wi‑Fi 다시 켜기" else "Android Wi‑Fi 설정 열기")
-        restoreButton.setOnClickListener { if (view.deviceOwner) monitor.restoreWifi() else openWifiSettings() }
+        restoreButton.setOnClickListener { if (ManagedService.active) stopService(Intent(this, ManagedService::class.java)) else openWifiSettings() }
         restoreButton.isEnabled = view.radioSwitch != RadioSwitch.RESTORING
-        update(managedMessage, when (view.radioSwitch) {
+        update(managedMessage, when (ManagedService.state?.radioSwitch ?: view.radioSwitch) {
             RadioSwitch.IDLE -> if (view.restoreNeeded) "앞서 요청한 Wi‑Fi 끄기를 되돌릴 수 있습니다."
-                else if (view.autoMode == AutoMode.MANAGED) "모바일 후보 확인 중 · 검증 전에는 Wi‑Fi를 끄지 않습니다."
-                else "이음선이 기기 소유자로 등록된 경우에만 한 번의 관측 세션을 준비할 수 있습니다."
+                else if (ManagedService.active) "화면이 꺼져도 감시 중 · 검증 전에는 Wi‑Fi를 끄지 않습니다."
+                else "이음선이 기기 소유자로 등록된 경우에만 백그라운드 자동 감시를 시작할 수 있습니다."
             RadioSwitch.REQUESTED -> "Wi‑Fi 끄기 요청을 접수했습니다. 실제 모바일 기본 경로를 확인 중입니다."
             RadioSwitch.MOBILE_DEFAULT -> "Wi‑Fi가 꺼지고 검증된 모바일 기본 경로가 관측됐습니다."
             RadioSwitch.RESTORING -> "Wi‑Fi 다시 켜기 요청을 접수했습니다. 실제 상태를 확인 중입니다."
@@ -250,6 +342,7 @@ class MainActivity : Activity() {
             Standby.EXPIRED -> "2분 대기 요청을 해제했어요. 필요하면 다시 시작할 수 있습니다."
         })
         update(standbyButton, if (view.standby in setOf(Standby.REQUESTING, Standby.HELD)) "모바일 대기 해제" else "2분 모바일 대기 요청")
+        standbyButton.isEnabled = !ManagedService.active
         update(events, view.handovers.joinToString("\n") { change ->
             val gap = change.observedGapMillis
             val note = if (gap == null) "공백 미관측" else "미검증 상태 관측: 약 ${(gap / 1000.0).roundToInt()}초"

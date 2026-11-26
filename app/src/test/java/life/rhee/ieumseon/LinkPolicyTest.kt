@@ -120,4 +120,15 @@ class LinkPolicyTest {
         assertEquals(Advisory.UNVERIFIED_WIFI, advise(LinkSnapshot(invalid, invalid, cell), weak = true))
         assertEquals(Advisory.NO_ROUTE, advise(LinkSnapshot(null, invalid, cell), weak = true))
     }
+    @Test fun publicWifiTrustInputsFailClosed() {
+        assertFalse("Cafe Secure" in BusWifi.profiles)
+        assertTrue("Public WiFi Secure" in BusWifi.profiles)
+        assertTrue(BusWifi.validDomain("wifisecure.kr"))
+        assertFalse(BusWifi.validDomain("https://wifisecure.kr"))
+        assertFalse(BusWifi.validDomain("*.wifisecure.kr"))
+        assertFalse(BusWifi.validDomain("wifi"))
+        assertTrue(BusWifi.validBssid("02:11:22:33:44:55"))
+        assertFalse(BusWifi.validBssid("ff:ff:ff:ff:ff:ff"))
+        assertFalse(BusWifi.validBssid("00:00:00:00:00:00"))
+    }
 }
