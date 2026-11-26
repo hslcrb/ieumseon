@@ -26,6 +26,8 @@ Windows에서는 `gradlew.bat testDebugUnitTest assembleDebug`를 사용합니�
 
 ## 소개 사이트
 
+[이음선 소개 사이트](https://ieumseon.pages.dev/)에서 가상의 연결 상태 세 가지를 체험할 수 있습니다.
+
 ```sh
 cd site
 npm ci
